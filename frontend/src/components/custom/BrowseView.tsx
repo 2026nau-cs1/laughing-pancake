@@ -96,7 +96,9 @@ export default function BrowseView({ onNavigate, user }: Props) {
 
   const handleAddToCart = (e: React.MouseEvent, book: Book) => {
     e.stopPropagation();
+    console.log('Adding book to cart:', book.id, book.title);
     const saved = localStorage.getItem('bc_cart');
+    console.log('Current cart before:', saved);
     let cart: { bookId: string; quantity: number }[] = saved ? JSON.parse(saved) : [];
     const existing = cart.find(i => i.bookId === book.id);
     if (existing) {
@@ -105,6 +107,7 @@ export default function BrowseView({ onNavigate, user }: Props) {
       cart.push({ bookId: book.id, quantity: 1 });
     }
     localStorage.setItem('bc_cart', JSON.stringify(cart));
+    console.log('Cart after update:', localStorage.getItem('bc_cart'));
     toast.success('已加入购物车');
   };
 

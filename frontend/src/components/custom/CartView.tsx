@@ -39,12 +39,16 @@ export default function CartView({ onNavigate, user, onAuthRequired }: Props) {
 
   const loadCart = async () => {
     const saved = localStorage.getItem('bc_cart');
+    console.log('Cart data from localStorage:', saved);
     if (saved) {
       try {
         const items = JSON.parse(saved);
+        console.log('Parsed cart items:', items);
         const fullItems: CartItem[] = [];
         for (const item of items) {
+          console.log('Loading book:', item.bookId);
           const res = await apiService.getBook(item.bookId);
+          console.log('API response:', res);
           if (res.success && res.data) {
             const data = res.data as any;
             fullItems.push({
@@ -54,6 +58,7 @@ export default function CartView({ onNavigate, user, onAuthRequired }: Props) {
             });
           }
         }
+        console.log('Full cart items:', fullItems);
         setCartItems(fullItems);
         setSelectedItems(new Set(fullItems.map(i => i.book.id)));
       } catch (err) {
