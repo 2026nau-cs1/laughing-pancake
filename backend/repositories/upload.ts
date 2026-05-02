@@ -1,40 +1,77 @@
-import { db } from '../db';
-import { uploads, InsertUpload, insertUploadSchema } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { USE_MOCK_DATA, generateId } from '../db';
 import { z } from 'zod';
 
-// Use Zod-inferred type for repository inputs to align with route validation.
-type CreateUploadInput = z.infer<typeof insertUploadSchema>;
+const insertUploadSchema = z.object({
+  fileName: z.string().min(1),
+  fileType: z.string().min(1),
+  s3Key: z.string().min(1),
+  s3Url: z.string().min(1),
+  uploadId: z.string().min(1),
+  status: z.string().optional(),
+});
+
+interface Upload {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  s3Key: string;
+  s3Url: string;
+  uploadId: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const mockUploads: Upload[] = [];
 
 export class UploadRepository {
-  async create(uploadData: CreateUploadInput) {
-    const [upload] = await db
-      .insert(uploads)
-      // Drizzle expects InsertUpload; assert at the DB boundary after validation.
-      .values(uploadData as InsertUpload)
-      .returning();
-
-    return upload;
+  async create(uploadData: z.infer<typeof insertUploadSchema>) {
+    if (USE_MOCK_DATA) {
+      const upload: Upload = {
+        id: generateId(),
+        fileName: uploadData.fileName,
+        fileSize: 0,
+        fileType: uploadData.fileType,
+        s3Key: uploadData.s3Key,
+        s3Url: uploadData.s3Url,
+        uploadId: uploadData.uploadId,
+        status: uploadData.status || 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mockUploads.push(upload);
+      return upload;
+    }
+    throw new Error('Database not configured');
   }
 
   async findById(id: string) {
-    const [upload] = await db.select().from(uploads).where(eq(uploads.id, id));
-
-    return upload;
+    if (USE_MOCK_DATA) {
+      return mockUploads.find(u => u.id === id) || undefined;
+    }
+    return undefined;
   }
 
   async updateStatus(id: string, status: string) {
-    const [upload] = await db
-      .update(uploads)
-      .set({ status, updatedAt: new Date() })
-      .where(eq(uploads.id, id))
-      .returning();
-
-    return upload;
+    if (USE_MOCK_DATA) {
+      const index = mockUploads.findIndex(u => u.id === id);
+      if (index !== -1) {
+        mockUploads[index].status = status;
+        mockUploads[index].updatedAt = new Date();
+        return mockUploads[index];
+      }
+    }
+    return undefined;
   }
 
   async delete(id: string) {
-    await db.delete(uploads).where(eq(uploads.id, id));
+    if (USE_MOCK_DATA) {
+      const index = mockUploads.findIndex(u => u.id === id);
+      if (index !== -1) {
+        mockUploads.splice(index, 1);
+      }
+    }
   }
 }
 

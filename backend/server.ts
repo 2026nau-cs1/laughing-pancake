@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { ErrorRequestHandler } from 'express';
 import path from 'path';
+import cors from 'cors';
 
 import { SERVER_CONFIG } from './config/constants';
 import { errorHandler } from './middleware/errorHandler';
@@ -13,6 +14,11 @@ import messagesRoutes from './routes/messages';
 import reviewsRoutes from './routes/reviews';
 
 const app = express();
+
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:3000'],
+  credentials: true,
+}));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

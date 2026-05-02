@@ -1,8 +1,33 @@
-import { db } from '../db';
-import { books, users, favorites, insertBookSchema } from '../db/schema';
-import { eq, and, ilike, or, gte, lte, desc, asc, sql } from 'drizzle-orm';
+import { USE_MOCK_DATA, mockBooks, mockUsers, mockFavorites, generateId, type BookRecord, type User } from '../db';
 import { z } from 'zod';
-import type { InsertBook } from '../db/schema';
+
+const insertBookSchema = z.object({
+  sellerId: z.string(),
+  title: z.string().min(1).max(200),
+  author: z.string().min(1).max(200),
+  isbn: z.string().optional(),
+  publisher: z.string().optional(),
+  publishYear: z.coerce.number().int().min(1900).max(2030).optional(),
+  category: z.enum(['textbook', 'literature', 'exam_prep', 'language', 'computer', 'science', 'history', 'art', 'other']),
+  condition: z.enum(['brand_new', 'like_new', 'good', 'fair', 'poor']),
+  price: z.coerce.string(),
+  originalPrice: z.coerce.string().optional(),
+  description: z.string().optional(),
+  images: z.array(z.string()).optional(),
+  status: z.enum(['available', 'sold', 'reserved', 'removed']).optional(),
+});
+
+type BookWithSeller = {
+  book: BookRecord;
+  seller: {
+    id: string;
+    name: string;
+    school?: string;
+    avatar?: string;
+    reputationScore: string;
+  };
+  isFavorited?: boolean;
+};
 
 export const booksRepository = {
   async findAll(params: {
@@ -17,185 +42,169 @@ export const booksRepository = {
     sellerId?: string;
     status?: string;
   }) {
-    const page = params.page || 1;
-    const limit = params.limit || 20;
-    const offset = (page - 1) * limit;
+    if (USE_MOCK_DATA) {
+      const page = params.page || 1;
+      const limit = params.limit || 20;
+      const offset = (page - 1) * limit;
+      const status = params.status || 'available';
 
-    let query = db
-      .select({
-        book: books,
-        seller: {
-          id: users.id,
-          name: users.name,
-          school: users.school,
-          avatar: users.avatar,
-          reputationScore: users.reputationScore,
-        },
-      })
-      .from(books)
-      .innerJoin(users, eq(books.sellerId, users.id))
-      .$dynamic();
+      let filteredBooks = mockBooks.filter(book => {
+        if (book.status !== status) return false;
+        if (params.sellerId && book.sellerId !== params.sellerId) return false;
+        if (params.q) {
+          const query = params.q.toLowerCase();
+          return book.title.toLowerCase().includes(query) ||
+                 book.author.toLowerCase().includes(query) ||
+                 (book.isbn && book.isbn.includes(query));
+        }
+        if (params.category && book.category !== params.category) return false;
+        if (params.condition && book.condition !== params.condition) return false;
+        if (params.minPrice !== undefined && parseFloat(book.price) < params.minPrice) return false;
+        if (params.maxPrice !== undefined && parseFloat(book.price) > params.maxPrice) return false;
+        return true;
+      });
 
-    const conditions = [];
+      filteredBooks.sort((a, b) => {
+        if (params.sortBy === 'price_asc') return parseFloat(a.price) - parseFloat(b.price);
+        if (params.sortBy === 'price_desc') return parseFloat(b.price) - parseFloat(a.price);
+        if (params.sortBy === 'popular') return b.viewCount - a.viewCount;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
 
-    const status = params.status || 'available';
-    conditions.push(eq(books.status, status));
+      const result = filteredBooks.slice(offset, offset + limit).map(book => ({
+        book,
+        seller: this.getSellerInfo(book.sellerId),
+      }));
 
-    if (params.sellerId) {
-      conditions.push(eq(books.sellerId, params.sellerId));
+      return {
+        books: result,
+        total: filteredBooks.length,
+        page,
+        limit,
+      };
     }
-
-    if (params.q) {
-      conditions.push(
-        or(
-          ilike(books.title, `%${params.q}%`),
-          ilike(books.author, `%${params.q}%`),
-          ilike(books.isbn, `%${params.q}%`)
-        )!
-      );
-    }
-
-    if (params.category) {
-      conditions.push(eq(books.category, params.category));
-    }
-
-    if (params.condition) {
-      conditions.push(eq(books.condition, params.condition));
-    }
-
-    if (params.minPrice !== undefined) {
-      conditions.push(gte(books.price, String(params.minPrice)));
-    }
-
-    if (params.maxPrice !== undefined) {
-      conditions.push(lte(books.price, String(params.maxPrice)));
-    }
-
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as typeof query;
-    }
-
-    if (params.sortBy === 'price_asc') {
-      query = query.orderBy(asc(books.price)) as typeof query;
-    } else if (params.sortBy === 'price_desc') {
-      query = query.orderBy(desc(books.price)) as typeof query;
-    } else if (params.sortBy === 'popular') {
-      query = query.orderBy(desc(books.viewCount)) as typeof query;
-    } else {
-      query = query.orderBy(desc(books.createdAt)) as typeof query;
-    }
-
-    const results = await query.limit(limit).offset(offset);
-
-    const countResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(books)
-      .where(conditions.length > 0 ? and(...conditions) : undefined);
-
-    return {
-      books: results,
-      total: Number(countResult[0]?.count || 0),
-      page,
-      limit,
-    };
+    return { books: [], total: 0, page: 1, limit: 20 };
   },
 
-  async findById(id: string, userId?: string) {
-    const result = await db
-      .select({
-        book: books,
-        seller: {
-          id: users.id,
-          name: users.name,
-          school: users.school,
-          avatar: users.avatar,
-          reputationScore: users.reputationScore,
-        },
-      })
-      .from(books)
-      .innerJoin(users, eq(books.sellerId, users.id))
-      .where(eq(books.id, id))
-      .limit(1);
+  getSellerInfo(sellerId: string) {
+    const seller = mockUsers.find(u => u.id === sellerId);
+    return seller ? {
+      id: seller.id,
+      name: seller.name,
+      school: seller.school,
+      avatar: seller.avatar,
+      reputationScore: seller.reputationScore,
+    } : null;
+  },
 
-    if (!result[0]) return null;
+  async findById(id: string, userId?: string): Promise<BookWithSeller | null> {
+    if (USE_MOCK_DATA) {
+      const book = mockBooks.find(b => b.id === id);
+      if (!book) return null;
 
-    // Increment view count
-    await db
-      .update(books)
-      .set({ viewCount: sql`${books.viewCount} + 1` })
-      .where(eq(books.id, id));
+      book.viewCount++;
 
-    let isFavorited = false;
-    if (userId) {
-      const fav = await db
-        .select()
-        .from(favorites)
-        .where(and(eq(favorites.userId, userId), eq(favorites.bookId, id)))
-        .limit(1);
-      isFavorited = fav.length > 0;
+      const isFavorited = userId ? mockFavorites.some(f => f.userId === userId && f.bookId === id) : false;
+
+      return {
+        book,
+        seller: this.getSellerInfo(book.sellerId)!,
+        isFavorited,
+      };
     }
-
-    return { ...result[0], isFavorited };
+    return null;
   },
 
-  async create(data: z.infer<typeof insertBookSchema>) {
-    const result = await db.insert(books).values(data as InsertBook).returning();
-    return result[0];
+  async create(data: z.infer<typeof insertBookSchema>): Promise<BookRecord> {
+    if (USE_MOCK_DATA) {
+      const newBook: BookRecord = {
+        id: generateId(),
+        sellerId: data.sellerId,
+        title: data.title,
+        author: data.author,
+        isbn: data.isbn,
+        publisher: data.publisher,
+        publishYear: data.publishYear,
+        category: data.category,
+        condition: data.condition,
+        price: data.price,
+        originalPrice: data.originalPrice,
+        description: data.description,
+        images: data.images || [],
+        status: data.status || 'available',
+        viewCount: 0,
+        favoriteCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mockBooks.push(newBook);
+      return newBook;
+    }
+    throw new Error('Database not configured');
   },
 
-  async update(id: string, sellerId: string, data: Partial<z.infer<typeof insertBookSchema>>) {
-    const result = await db
-      .update(books)
-      .set({ ...data as Partial<InsertBook>, updatedAt: new Date() })
-      .where(and(eq(books.id, id), eq(books.sellerId, sellerId)))
-      .returning();
-    return result[0] || null;
+  async update(id: string, sellerId: string, data: Partial<z.infer<typeof insertBookSchema>>): Promise<BookRecord | null> {
+    if (USE_MOCK_DATA) {
+      const index = mockBooks.findIndex(b => b.id === id && b.sellerId === sellerId);
+      if (index !== -1) {
+        mockBooks[index] = { ...mockBooks[index], ...data, updatedAt: new Date() };
+        return mockBooks[index];
+      }
+    }
+    return null;
   },
 
-  async delete(id: string, sellerId: string) {
-    const result = await db
-      .update(books)
-      .set({ status: 'removed', updatedAt: new Date() })
-      .where(and(eq(books.id, id), eq(books.sellerId, sellerId)))
-      .returning();
-    return result.length > 0;
+  async delete(id: string, sellerId: string): Promise<boolean> {
+    if (USE_MOCK_DATA) {
+      const index = mockBooks.findIndex(b => b.id === id && b.sellerId === sellerId);
+      if (index !== -1) {
+        mockBooks[index].status = 'removed';
+        mockBooks[index].updatedAt = new Date();
+        return true;
+      }
+    }
+    return false;
   },
 
   async toggleFavorite(userId: string, bookId: string) {
-    const existing = await db
-      .select()
-      .from(favorites)
-      .where(and(eq(favorites.userId, userId), eq(favorites.bookId, bookId)))
-      .limit(1);
-
-    if (existing.length > 0) {
-      await db.delete(favorites).where(and(eq(favorites.userId, userId), eq(favorites.bookId, bookId)));
-      await db.update(books).set({ favoriteCount: sql`${books.favoriteCount} - 1` }).where(eq(books.id, bookId));
-      return { favorited: false };
-    } else {
-      await db.insert(favorites).values({ userId, bookId });
-      await db.update(books).set({ favoriteCount: sql`${books.favoriteCount} + 1` }).where(eq(books.id, bookId));
-      return { favorited: true };
+    if (USE_MOCK_DATA) {
+      const index = mockFavorites.findIndex(f => f.userId === userId && f.bookId === bookId);
+      if (index !== -1) {
+        mockFavorites.splice(index, 1);
+        const book = mockBooks.find(b => b.id === bookId);
+        if (book) book.favoriteCount--;
+        return { favorited: false };
+      } else {
+        mockFavorites.push({
+          id: generateId(),
+          userId,
+          bookId,
+          createdAt: new Date(),
+        });
+        const book = mockBooks.find(b => b.id === bookId);
+        if (book) book.favoriteCount++;
+        return { favorited: true };
+      }
     }
+    return { favorited: false };
   },
 
   async getUserFavorites(userId: string) {
-    return db
-      .select({
-        favorite: favorites,
-        book: books,
-        seller: {
-          id: users.id,
-          name: users.name,
-          school: users.school,
-          avatar: users.avatar,
-          reputationScore: users.reputationScore,
-        },
-      })
-      .from(favorites)
-      .innerJoin(books, eq(favorites.bookId, books.id))
-      .innerJoin(users, eq(books.sellerId, users.id))
-      .where(eq(favorites.userId, userId))
-      .orderBy(desc(favorites.createdAt));
+    if (USE_MOCK_DATA) {
+      return mockFavorites
+        .filter(f => f.userId === userId)
+        .map(f => {
+          const book = mockBooks.find(b => b.id === f.bookId);
+          if (!book) return null;
+          return {
+            favorite: f,
+            book,
+            seller: this.getSellerInfo(book.sellerId),
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => new Date(b!.favorite.createdAt).getTime() - new Date(a!.favorite.createdAt).getTime());
+    }
+    return [];
   },
 };
