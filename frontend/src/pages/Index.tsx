@@ -11,10 +11,11 @@ import MessagesView from '@/components/custom/MessagesView';
 import ProfileView from '@/components/custom/ProfileView';
 import AuthView from '@/components/custom/AuthView';
 import BookDetailView from '@/components/custom/BookDetailView';
-import { BookOpen, Search, PlusCircle, ShoppingBag, MessageCircle, User as UserIcon, Menu, X, LogOut } from 'lucide-react';
+import CartView from '@/components/custom/CartView';
+import { BookOpen, Search, PlusCircle, ShoppingBag, MessageCircle, User as UserIcon, Menu, X, LogOut, ShoppingCart } from 'lucide-react';
 import { toast } from 'sonner';
 
-export type AppView = 'home' | 'browse' | 'sell' | 'orders' | 'messages' | 'profile' | 'auth' | 'book-detail';
+export type AppView = 'home' | 'browse' | 'sell' | 'orders' | 'messages' | 'profile' | 'auth' | 'book-detail' | 'cart';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState<AppView>('home');
@@ -46,7 +47,7 @@ const Index = () => {
   };
 
   const handleNavigate = (view: AppView, bookId?: string) => {
-    if ((view === 'sell' || view === 'orders' || view === 'messages' || view === 'profile') && !user) {
+    if ((view === 'sell' || view === 'orders' || view === 'messages' || view === 'profile' || view === 'cart') && !user) {
       setAuthMode('login');
       setCurrentView('auth');
       return;
@@ -60,6 +61,7 @@ const Index = () => {
   const navItems = [
     { id: 'browse' as AppView, label: '浏览书籍', icon: Search },
     { id: 'sell' as AppView, label: '出售书籍', icon: PlusCircle },
+    { id: 'cart' as AppView, label: '购物车', icon: ShoppingCart },
     { id: 'orders' as AppView, label: '我的订单', icon: ShoppingBag },
     { id: 'messages' as AppView, label: '消息', icon: MessageCircle },
   ];
@@ -222,6 +224,13 @@ const Index = () => {
         {currentView === 'book-detail' && selectedBookId && (
           <BookDetailView
             bookId={selectedBookId}
+            onNavigate={handleNavigate}
+            user={user}
+            onAuthRequired={() => { setAuthMode('login'); setCurrentView('auth'); }}
+          />
+        )}
+        {currentView === 'cart' && (
+          <CartView
             onNavigate={handleNavigate}
             user={user}
             onAuthRequired={() => { setAuthMode('login'); setCurrentView('auth'); }}

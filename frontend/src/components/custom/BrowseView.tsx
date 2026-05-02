@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiService } from '@/lib/api';
 import type { User, Book, BookCategory, BookCondition } from '@shared/types/api';
 import type { AppView } from '@/pages/Index';
-import { Search, SlidersHorizontal, Heart, X, ChevronDown } from 'lucide-react';
+import { Search, SlidersHorizontal, Heart, X, ChevronDown, ShoppingCart } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Props {
@@ -92,6 +92,20 @@ export default function BrowseView({ onNavigate, user }: Props) {
       });
       toast.success(res.data.favorited ? '已收藏' : '已取消收藏');
     }
+  };
+
+  const handleAddToCart = (e: React.MouseEvent, book: Book) => {
+    e.stopPropagation();
+    const saved = localStorage.getItem('bc_cart');
+    let cart: { bookId: string; quantity: number }[] = saved ? JSON.parse(saved) : [];
+    const existing = cart.find(i => i.bookId === book.id);
+    if (existing) {
+      existing.quantity += 1;
+    } else {
+      cart.push({ bookId: book.id, quantity: 1 });
+    }
+    localStorage.setItem('bc_cart', JSON.stringify(cart));
+    toast.success('已加入购物车');
   };
 
   const handleSearch = () => { setPage(1); fetchBooks(); };
@@ -277,12 +291,19 @@ export default function BrowseView({ onNavigate, user }: Props) {
                 <p className="text-xs mt-1" style={{ color: '#6B6560' }}>{book.author}</p>
                 <div className="flex items-center justify-between mt-2">
                   <div>
-                    <span className="text-base font-bold" style={{ color: '#C8873A' }}>￦{Number(book.price).toFixed(0)}</span>
+                    <span className="text-base font-bold" style={{ color: '#C8873A' }}>￥{Number(book.price).toFixed(0)}</span>
                     {book.originalPrice && (
-                      <span className="text-xs line-through ml-1" style={{ color: '#6B6560' }}>￦{Number(book.originalPrice).toFixed(0)}</span>
+                      <span className="text-xs line-through ml-1" style={{ color: '#6B6560' }}>￥{Number(book.originalPrice).toFixed(0)}</span>
                     )}
                   </div>
-                  <span className="text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: '#2D4A3E' }}>购买</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleAddToCart(e, book); }}
+                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-full text-white transition-all hover:opacity-90"
+                    style={{ backgroundColor: '#2D4A3E' }}
+                  >
+                    <ShoppingCart className="w-3 h-3" />
+                    购买
+                  </button>
                 </div>
                 <div className="flex items-center gap-1 mt-2">
                   <span className="text-xs" style={{ color: '#6B6560' }}>{book.sellerSchool || '未知学校'} · {book.sellerName}</span>
